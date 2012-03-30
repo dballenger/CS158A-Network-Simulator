@@ -80,8 +80,11 @@ public class Simulator {
       */
       ArrayList<Frame> frames = new ArrayList<Frame>();
       
-      // the max may need to be offset in the event we determine that we aren't getting enough collisions and need to minimize the time in which machines can send packets
-      time_offset = generator.nextInt(2 << 16); // for each machine we initial the offset to a random offset to begin with, this makes it so things won't all send at the same time
+      /**
+       The max may need to be offset in the event we determine that we aren't getting enough collisions and need to minimize the time in which machines can send packets
+       for each machine we initial the offset to a random offset to begin with, this makes it so things won't all send at the same time
+      */
+      time_offset = generator.nextInt(2 << 16);
       
       for (int i = 0; i < 1280; i++) {
         packet_size = generator.nextInt(1420);
@@ -99,17 +102,6 @@ public class Simulator {
         return (e1.getTimeSlot() <= e2.getTimeSlot() ? 0 : 1);
       }
     });
-    
-    /**
-     debugging code
-    int select = 1;
-    System.out.println("Will take: " + events.get(select).getFrame().timeToTransmit() + " nano seconds to transmit " + events.get(select).getFrame().getPayloadSize() + " and run from " + events.get(select).getTimeSlot() + " until " + events.get(select).getFinishedSlot());
-    System.out.println(events.get(select).getFrame());
-    
-    select = 2;
-    System.out.println("Will take: " + events.get(select).getFrame().timeToTransmit() + " nano seconds to transmit " + events.get(select).getFrame().getPayloadSize() + " and run from " + events.get(select).getTimeSlot() + " until " + events.get(select).getFinishedSlot());
-    System.out.println(events.get(select).getFrame());
-    */
   }
   
   /**
@@ -161,7 +153,7 @@ public class Simulator {
        
        Check if the events are inside or outside of the 512 bit detection window, in reality we wouldn't know immediately about the collision (but in a simulator we obviously can)
       */
-      if (!this.mediumClear(timer) && this.onWireEvents.size() > 1) {
+      if (this.mediumClear(timer) && this.onWireEvents.size() > 1) { // this isn't quite what it should be
         // in this case, we push all events back onto this.events at random intervals...Event will need to track the retries (the exponential backoff algorithm)
         System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
         System.out.println("Current time: " + timer);
@@ -175,7 +167,6 @@ public class Simulator {
         // resort the list so things are in order
         // new elements inserted at timer + generator.nextInt()
       }
-      
       
       /**
        We're done with this step, so increment the timer for the next run around
