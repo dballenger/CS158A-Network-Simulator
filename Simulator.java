@@ -25,14 +25,30 @@ public class Simulator {
    Events currently on the wire (frames still in transit)
   */
   private ArrayList<Event> onWireEvents = new ArrayList<Event>();
+  /**
+   The nodes between which we'll be sending our traffic
+  */
   private ArrayList<Node> nodes = new ArrayList<Node>();
   
   public static void main(String[] args) {
     System.out.println("802.3 Ethernet Network Simulator");
     
     Simulator sim = new Simulator();
+    /**
+     Configure the simulator, should eventually prompt for:
+     * How many nodes we have
+     * How much traffic to send between nodes
+     * How fast the traffic should transmit
+    */
     sim.setup();
+    /**
+      Actually run the simulator, this is where we should collect statisitics
+    */
     sim.run();
+    /**
+      Here we should analyze the statistics (collisions, transmit speed, etc)
+      sim.metrics();
+    */
   }
   
   private void setup() {
@@ -136,16 +152,17 @@ public class Simulator {
         */
         next = this.events.get(0);
         if (this.mediumClear(timer) && next.getTimeSlot() <= timer) {
-          
           this.events.remove(0);
           this.onWireEvents.add(next);
         }
       }
       /**
        If there's more than 1 events in the onWireEvents array list, we have a collision
+       
+       Check if the events are inside or outside of the 512 bit detection window, in reality we wouldn't know immediately about the collision (but in a simulator we obviously can)
       */
-      if (this.onWireEvents.size() > 1) {
-        //in this case, we push all events back onto this.events at random intervals...Event will need to track the retries
+      if (!this.mediumClear(timer) && this.onWireEvents.size() > 1) {
+        // in this case, we push all events back onto this.events at random intervals...Event will need to track the retries (the exponential backoff algorithm)
         System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
         System.out.println("Current time: " + timer);
         
@@ -160,6 +177,9 @@ public class Simulator {
       }
       
       
+      /**
+       We're done with this step, so increment the timer for the next run around
+      */
       timer++;
     }
   }
@@ -172,13 +192,25 @@ public class Simulator {
   */
   private boolean mediumClear(int timer) {
     for (Event event : this.onWireEvents) {
+      /**
+       To "account" for the fact not all devices are going to be 512 bits away from each other, we should probably randomly generate a number between 1 and 512 to check against
+      */
       if ((event.getTimeSlot() - timer) <= 512) {
+        /**
+         No frames on the wire within 512 bits of distance
+        */
         return true;
       } else {
+        /**
+         There exists a frame on the wire within 512 bits of the sender
+        */
         return false;
       }
     }
     
+    /**
+     By default the medium is clear (we know this because this will only happen when nothing is on the wire)
+    */
     return true;
   }
 }
