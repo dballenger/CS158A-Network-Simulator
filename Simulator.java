@@ -60,8 +60,8 @@ public class Simulator {
     long time_offset = 0;
     int packet_size = 0;
     final int INTER_FRAME_DELAY = 22135;
-    final int NODES = 4;
-    final int PACKETS_EACH = 64;
+    final int NODES = 128;
+    final int PACKETS_EACH = 1280;
     
     /**
      Setup nodes for the simulation
@@ -160,7 +160,7 @@ public class Simulator {
        This could get removed and put into it's own method
       */
       for (int i = 0; i < this.onWireEvents.size(); i++) {
-        if (this.onWireEvents.get(i).getFinishedSlot() < timer) {
+        if (this.onWireEvents.get(i).getFinishedSlot() <= timer) {
 //          System.out.println("Removing event " + this.onWireEvents.get(i) + " as it finished at " + this.onWireEvents.get(i).getFinishedSlot() + " and we are now at time " + timer);
           this.onWireEvents.remove(i);
           
@@ -220,21 +220,11 @@ public class Simulator {
           /**
            Determine if we should "immediately" resend the frame or send it again later
           */
-          if (retries == 1) {
-            System.out.println("FIRST RETRY");
-            delay = generator.nextInt(2);
-          } else if (retries == 2) {
-            System.out.println("SECOND RETRY");
-            delay = generator.nextInt(4);
-          } else if (retries == 3) {
-            System.out.println("THIRD RETRY");
-            delay = generator.nextInt(8);
-          } else if (retries < 17){
-            System.out.println(retries + "th RETRY");
-            if (retries > 10) {
-              delay = generator.nextInt(11);
+          if (retries < 17) {
+            if (retries <= 10) {
+              delay = generator.nextInt(1 << retries);
             } else {
-              delay = generator.nextInt(retries + 1);
+              delay = generator.nextInt(11);
             }
           } else {
             /**
@@ -258,20 +248,9 @@ public class Simulator {
           }
         }
         /**
-         Reset the array list to be empty now
+         Reset the array list to be empty now, since all the colliding packets have been requeued
         */
         this.onWireEvents = new ArrayList<Event>();
-        
-        /**
-         We should clear out all the on the wire events at this point, since we've cleared the collision already
-         
-         .....
-        */
-        
-        System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        
-        // resort the list so things are in order
-        // new elements inserted at timer + generator.nextInt()
         
         /**
          Resort the list for the new frames being resent
@@ -299,11 +278,13 @@ public class Simulator {
    @return True if the medium is clear (or appears clear), false if data transferring currently
   */
   private boolean mediumClear(int timer) {
+    Random generator = new Random();
+    
     for (Event event : this.onWireEvents) {
       /**
        To "account" for the fact not all devices are going to be 512 bits away from each other, we should probably randomly generate a number between 1 and 512 to check against
       */
-      if ((event.getTimeSlot() - timer) <= 512) {
+      if ((timer - event.getTimeSlot()) <= generator.nextInt(512)) {
         /**
          No frames on the wire within 512 bits of distance
         */
