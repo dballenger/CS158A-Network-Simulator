@@ -27,6 +27,12 @@ public class Event {
     this.retries      = 0;
   }
   
+  public long setTimeSlot(long time_slot) {
+    this.time_slot = time_slot;
+    
+    return this.time_slot;
+  }
+  
   public long getTimeSlot() {
     return this.time_slot;
   }
@@ -49,6 +55,10 @@ public class Event {
   
   public short getRetries() {
     return this.retries;
+  }
+  
+  public short incrementRetries() {
+    return ++this.retries;
   }
   
   public String toString() {

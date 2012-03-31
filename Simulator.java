@@ -29,6 +29,10 @@ public class Simulator {
    The nodes between which we'll be sending our traffic
   */
   private ArrayList<Node> nodes = new ArrayList<Node>();
+  /**
+   Variables for metrics
+  */
+  private int initial_frames = 0, dropped_frames = 0, retried_frames = 0;
   
   public static void main(String[] args) {
     System.out.println("802.3 Ethernet Network Simulator");
@@ -55,11 +59,14 @@ public class Simulator {
     Random generator = new Random();
     long time_offset = 0;
     int packet_size = 0;
+    final int INTER_FRAME_DELAY = 22135;
+    final int NODES = 4;
+    final int PACKETS_EACH = 64;
     
     /**
      Setup nodes for the simulation
     */
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < NODES; i++) {
       this.nodes.add(new Node());
     }
     
@@ -86,11 +93,12 @@ public class Simulator {
       */
       time_offset = generator.nextInt(2 << 16);
       
-      for (int i = 0; i < 1280; i++) {
-        packet_size = generator.nextInt(1420);
+      for (int i = 0; i < PACKETS_EACH; i++) {
+        packet_size = 512; // generator.nextInt(1420);
         this.events.add(new Event(source, destination, new Frame(source, destination, (64 + packet_size)), time_offset));
         
-        time_offset += packet_size * 8; // the next packet should come immediately after this packet, not one bit later
+        // this isn't really correct, we want it to only be 1.5Mbps, not 10MB all right after the other.
+        time_offset += packet_size * 8 + INTER_FRAME_DELAY; // the next packet should come immediately after this packet, not one bit later
       }
     }
     
@@ -102,6 +110,11 @@ public class Simulator {
         return (e1.getTimeSlot() <= e2.getTimeSlot() ? 0 : 1);
       }
     });
+    
+    /**
+     For metrics, store how many frames we're queued to send
+    */
+    this.initial_frames = this.events.size();
   }
   
   /**
@@ -112,8 +125,29 @@ public class Simulator {
    After the time to transmit has been reached, the event should be popped off the onWireEvents array list (and can be discarded)
   */
   private void run() {
-    int timer = 0;
+    /**
+     Magic number for how long to delay as part of the backoff algorithm
+    */
+    final int RETRY_DELAY = 537;
+    /**
+     Variable to hold the retry count of the currently processing frame
+    */
+    short retries = 0;
+    /**
+     Track where we are in the simulation
+    */
+    int timer = 0, delay = 0;
+    /**
+     What event we're currently working with and just about to process if the carrier sense is clear
+    */
     Event current = null, next = null;
+    /**
+     The random number generator for the backoff algorithm
+    */
+    Random generator = new Random();
+    /**
+     The events currently on the wire as part of the simulation
+    */
     this.onWireEvents = new ArrayList<Event>();
     
     /**
@@ -158,14 +192,95 @@ public class Simulator {
         System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
         System.out.println("Current time: " + timer);
         
+        /**
+         We need to loop through each of the events on the wire, and if they're part of this collision, we need to increment
+         their retry counter and schedule them to run again in the future according to the backoff algorithm
+        */
         for (Event event : this.onWireEvents) {
-          System.out.println(event);
+          retries = event.incrementRetries();
+          
+          /**
+           1) send a jamming signal
+           Then one of the below options depending on how many retries we're attempting:
+           
+           2) resend the frame immediately (on the next timer cycle) or after 51.2 microseconds (random selection)
+           3) If that fails: k * 51.2 microseconds where k = 0,1,2,3
+           4) If it's still failing, k * 51.2 microseconds where k is [0, 2^3 - 1]
+           5) If it's still failing, try up to [0, 2^10 - 1]
+           Note: 51.2 microseconds = 536.870912 clock ticks in our simulation
+          */
+          
+          /**
+           Send the jamming signal
+           
+           Just not right now since it will cause an endless loop creating jamming frames for the jamming frames
+          */
+//          this.events.add(new Event(event.getSource(), event.getDestination(), new Frame(event.getSource(), event.getDestination(), 4, timer)));
+          
+          /**
+           Determine if we should "immediately" resend the frame or send it again later
+          */
+          if (retries == 1) {
+            System.out.println("FIRST RETRY");
+            delay = generator.nextInt(2);
+          } else if (retries == 2) {
+            System.out.println("SECOND RETRY");
+            delay = generator.nextInt(4);
+          } else if (retries == 3) {
+            System.out.println("THIRD RETRY");
+            delay = generator.nextInt(8);
+          } else if (retries < 17){
+            System.out.println(retries + "th RETRY");
+            if (retries > 10) {
+              delay = generator.nextInt(11);
+            } else {
+              delay = generator.nextInt(retries + 1);
+            }
+          } else {
+            /**
+             The specification says that if we we resending 16 times, just drop the frame.
+            */
+            dropped_frames++;
+            System.out.println("Dropping frame, 16 retries already attempted");
+          }
+          
+          /**
+           We haven't gotten to the point where we should drop the frame,
+           so we update the timeslot for it to send again in and queue it.
+          */
+          if (retries < 17) {
+            this.retried_frames++;
+            
+            event.setTimeSlot(timer + (delay * RETRY_DELAY));
+            this.events.add(event);
+            
+            System.out.println("Triggering resend of frame with delay factor " + delay + ":" + event);
+          }
         }
+        /**
+         Reset the array list to be empty now
+        */
+        this.onWireEvents = new ArrayList<Event>();
+        
+        /**
+         We should clear out all the on the wire events at this point, since we've cleared the collision already
+         
+         .....
+        */
         
         System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
         
         // resort the list so things are in order
         // new elements inserted at timer + generator.nextInt()
+        
+        /**
+         Resort the list for the new frames being resent
+        */
+        Collections.sort(this.events, new Comparator<Event>() {
+          public int compare(Event e1, Event e2) {
+            return (e1.getTimeSlot() <= e2.getTimeSlot() ? 0 : 1);
+          }
+        });
       }
       
       /**
@@ -173,6 +288,8 @@ public class Simulator {
       */
       timer++;
     }
+    
+    System.out.println("Simulation complete.  Out of " + this.initial_frames + " initial frames queued, we had " + this.dropped_frames + " dropped frames and " + this.retried_frames + " retried frames");
   }
   
   /**
