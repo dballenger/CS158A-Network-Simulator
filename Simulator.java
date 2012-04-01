@@ -1,11 +1,10 @@
 import java.util.*;
 
 /**
- Time slices in nanoseconds what about just time slice = 1 bit across the entire lan (500 meters)
+  Time slice = 1 bit across the entire lan (500 meters)
  1 bit / 10Mbps = 95.3674316 nano seconds (time "width" of a bit)
  speed of light in copper: c(copper) = 2.1 x 10^8 m/s
  Time to travel across the whole lan: 500 meters / c(copper) = 2.38095 x 10^-5 seconds = 23809.5 nanoseconds
-
  
  We might not notice a frame on the wire for up to 512 bits (48.828125 microseconds) and cause a collison
 */
@@ -13,7 +12,9 @@ import java.util.*;
 /**
  Distance wise we could probably just consider the length of the entire segment and use that to determine the time to spend data to another host.
  
- We probably don't need to worry about the distances between each node
+ We probably don't need to worry about the distances between each node.
+ If we do, define the disance from the "center" of the segment.  Negative distances being to the left of the center, and positive distances being to the right of the center
+ 
 */
 
 public class Simulator {
@@ -59,8 +60,17 @@ public class Simulator {
     Random generator = new Random();
     long time_offset = 0;
     int packet_size = 0;
+    /**
+     This represents the delay we need to be sending data at 1.5Mbps
+    */
     final int INTER_FRAME_DELAY = 22135;
-    final int NODES = 128;
+    /**
+     How many nodes we want to simulate for -- this should probably be a prompt or command line argument in the future
+    */
+    final int NODES = 16;
+    /**
+     How many packets do we want each host to send?
+    */
     final int PACKETS_EACH = 1280;
     
     /**
@@ -83,15 +93,10 @@ public class Simulator {
       System.out.println("Configuring node: " + source.getMacAddress() + " to transmit to: " + destination.getMacAddress());
       
       /**
-       Create the frame events
-      */
-      ArrayList<Frame> frames = new ArrayList<Frame>();
-      
-      /**
        The max may need to be offset in the event we determine that we aren't getting enough collisions and need to minimize the time in which machines can send packets
        for each machine we initial the offset to a random offset to begin with, this makes it so things won't all send at the same time
       */
-      time_offset = generator.nextInt(2 << 16);
+      time_offset = generator.nextInt(2 << 12);
       
       for (int i = 0; i < PACKETS_EACH; i++) {
         packet_size = 512; // generator.nextInt(1420);
@@ -126,7 +131,7 @@ public class Simulator {
   */
   private void run() {
     /**
-     Magic number for how long to delay as part of the backoff algorithm
+     Magic number for how many ticks to delay as part of the backoff algorithm
     */
     final int RETRY_DELAY = 537;
     /**
@@ -189,8 +194,8 @@ public class Simulator {
       */
       if (this.mediumClear(timer) && this.onWireEvents.size() > 1) { // this isn't quite what it should be
         // in this case, we push all events back onto this.events at random intervals...Event will need to track the retries (the exponential backoff algorithm)
-        System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        System.out.println("Current time: " + timer);
+//        System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
+//        System.out.println("Current time: " + timer);
         
         /**
          We need to loop through each of the events on the wire, and if they're part of this collision, we need to increment
@@ -244,7 +249,7 @@ public class Simulator {
             event.setTimeSlot(timer + (delay * RETRY_DELAY));
             this.events.add(event);
             
-            System.out.println("Triggering resend of frame with delay factor " + delay + ":" + event);
+//            System.out.println("Triggering resend of frame with delay factor " + delay + ":" + event);
           }
         }
         /**
