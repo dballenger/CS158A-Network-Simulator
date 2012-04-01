@@ -18,6 +18,10 @@ public class Event {
    How many times have we retried sending the frame?
   */
   private short retries = 0;
+  /**
+   The speed of light in copper, in meters per second
+  */
+  private final int SPEED_OF_LIGHT_IN_COPPER = 210000000;
   
   public Event(Node source, Node destination, Frame frame, long time_slot) {
     this.source       = source;
@@ -37,8 +41,12 @@ public class Event {
     return this.time_slot;
   }
   
+  private long propogationDelay() {
+    return (long)(((double)(Math.abs(Math.abs(this.source.getDistance()) - Math.abs(this.destination.getDistance())) / (double)SPEED_OF_LIGHT_IN_COPPER)) / 0.000000095);
+  }
+  
   public long getFinishedSlot() {
-    return (this.time_slot + (int)this.frame.timeToTransmit());
+    return (this.time_slot + (int)this.frame.timeToTransmit() + this.propogationDelay());
   }
   
   public Node getSource() {

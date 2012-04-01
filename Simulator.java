@@ -7,6 +7,8 @@ import java.util.*;
  Time to travel across the whole lan: 500 meters / c(copper) = 2.38095 x 10^-5 seconds = 23809.5 nanoseconds
  
  We might not notice a frame on the wire for up to 512 bits (48.828125 microseconds) and cause a collison
+ 
+ Need to take into account the distance for determing how long it takes to transmit
 */
 
 /**
@@ -63,11 +65,11 @@ public class Simulator {
     /**
      This represents the delay we need to be sending data at 1.5Mbps
     */
-    final int INTER_FRAME_DELAY = 22135;
+    final int INTER_FRAME_DELAY = 1024; // 22135;
     /**
      How many nodes we want to simulate for -- this should probably be a prompt or command line argument in the future
     */
-    final int NODES = 16;
+    final int NODES = 8;
     /**
      How many packets do we want each host to send?
     */
@@ -90,6 +92,8 @@ public class Simulator {
         destination = this.nodes.get(generator.nextInt(this.nodes.size()));
       }
       
+      source.setDestinationNode(destination);
+      
       System.out.println("Configuring node: " + source.getMacAddress() + " to transmit to: " + destination.getMacAddress());
       
       /**
@@ -102,8 +106,7 @@ public class Simulator {
         packet_size = 512; // generator.nextInt(1420);
         this.events.add(new Event(source, destination, new Frame(source, destination, (64 + packet_size)), time_offset));
         
-        // this isn't really correct, we want it to only be 1.5Mbps, not 10MB all right after the other.
-        time_offset += packet_size * 8 + INTER_FRAME_DELAY; // the next packet should come immediately after this packet, not one bit later
+        time_offset += packet_size * 8 + INTER_FRAME_DELAY + generator.nextInt(40000); // the next packet should come immediately after this frame + the inter frame delay, not one bit later
       }
     }
     
@@ -185,6 +188,12 @@ public class Simulator {
         if (this.mediumClear(timer) && next.getTimeSlot() <= timer) {
           this.events.remove(0);
           this.onWireEvents.add(next);
+          
+          if (next.getSource().getFirstFrameSeen() == 0) {
+            next.getSource().setFirstFrameSent(timer);
+          }
+          
+          next.getSource().setLastFrameSent(timer);
         }
       }
       /**
@@ -249,7 +258,7 @@ public class Simulator {
             event.setTimeSlot(timer + (delay * RETRY_DELAY));
             this.events.add(event);
             
-//            System.out.println("Triggering resend of frame with delay factor " + delay + ":" + event);
+            System.out.println("Triggering resend of frame with delay factor " + delay + ":" + event);
           }
         }
         /**
@@ -274,6 +283,19 @@ public class Simulator {
     }
     
     System.out.println("Simulation complete.  Out of " + this.initial_frames + " initial frames queued, we had " + this.dropped_frames + " dropped frames and " + this.retried_frames + " retried frames");
+    
+    // 1280 frames * 512 bytes -> bits
+    int total_data_transmitted = 1280 * 512 * 8;
+    
+    for (Node node : this.nodes) {
+      
+      System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + ((double)total_data_transmitted / ((double)(node.getLastFrameSeen() -  node.getFirstFrameSeen()) / (double)10000000)) / 1000000 + " Mbps");
+    }
+    
+    for (Node node : this.nodes) {
+      
+      System.out.println(node.getMacAddress() + "," + node.getDestinationNode() + "," + ((double)total_data_transmitted / ((double)(node.getLastFrameSeen() -  node.getFirstFrameSeen()) / (double)10000000)) / 1000000 + " Mbps");
+    }
   }
   
   /**
@@ -284,11 +306,13 @@ public class Simulator {
   */
   private boolean mediumClear(int timer) {
     Random generator = new Random();
+    int distance_propogated_from_source = 0;
     
     for (Event event : this.onWireEvents) {
       /**
-       To "account" for the fact not all devices are going to be 512 bits away from each other, we should probably randomly generate a number between 1 and 512 to check against
+        We need to check if bits from the sender would have reached our node at this time
       */
+//      distance_propogated_from_source 
       if ((timer - event.getTimeSlot()) <= generator.nextInt(512)) {
         /**
          No frames on the wire within 512 bits of distance
