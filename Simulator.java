@@ -163,7 +163,7 @@ public class Simulator {
       for (int i = 0; i < PACKETS_EACH; i++) {
         this.events.add(new Event(source, destination, new Frame(source, destination, (64 + PACKET_SIZE)), time_offset));
         
-        time_offset += (PACKET_SIZE * 8) + INTER_FRAME_DELAY; // the next packet should come immediately after this frame + the inter frame delay, not one bit later
+        time_offset += (PACKET_SIZE * 8) + INTER_FRAME_DELAY + generator.nextInt(2 << 12); // the next packet should come immediately after this frame + the inter frame delay, not one bit later
       }
     }
     
