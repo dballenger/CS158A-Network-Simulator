@@ -1,4 +1,5 @@
 import java.util.*;
+import java.io.*;
 
 /**
   Time slice = 1 bit across the entire lan (500 meters)
@@ -37,6 +38,36 @@ public class Simulator {
   */
   private int initial_frames = 0, dropped_frames = 0, retried_frames = 0;
   
+  /**
+   The speed of the medium in bits per second
+  */
+  final int MEDIUM_SPEED = 10000000;
+  /**
+   Make bits into Megabits
+  */
+  final int BIT_FACTOR = 1000000;
+  /**
+   This represents the delay we need to be sending data at 1.5Mbps
+  */
+  final int DEFAULT_INTER_FRAME_DELAY = 22135;
+  int INTER_FRAME_DELAY = 0;
+  /**
+   How many nodes we want to simulate for
+  */
+  final int DEFAULT_NODES = 8;
+  int NODES = 0;
+  /**
+   How many packets do we want each host to send?
+  */
+  final int DEFAULT_PACKETS_EACH = 1280;
+  int PACKETS_EACH = 0;
+  
+  /**
+   How big should the payload in the frames be? In bytes
+  */
+  final int DEFAULT_PACKET_SIZE = 512;
+  int PACKET_SIZE = DEFAULT_PACKET_SIZE;
+  
   public static void main(String[] args) {
     System.out.println("802.3 Ethernet Network Simulator");
     
@@ -61,19 +92,46 @@ public class Simulator {
   private void setup() {
     Random generator = new Random();
     long time_offset = 0;
-    int packet_size = 0;
-    /**
-     This represents the delay we need to be sending data at 1.5Mbps
-    */
-    final int INTER_FRAME_DELAY = 1024; // 22135;
-    /**
-     How many nodes we want to simulate for -- this should probably be a prompt or command line argument in the future
-    */
-    final int NODES = 8;
-    /**
-     How many packets do we want each host to send?
-    */
-    final int PACKETS_EACH = 1280;
+    
+    try {
+      BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+      
+      try {
+        System.out.print("How many nodes? ");
+        NODES = Integer.parseInt(in.readLine());
+        System.out.println("Configuring for " + NODES + " nodes");
+      } catch (NumberFormatException e) {
+        System.out.println("You didn't enter anything, defaulting to " + DEFAULT_NODES + " nodes.");
+        NODES = DEFAULT_NODES;
+      }
+      
+      try {
+        System.out.print("How many packets per node? ");
+        PACKETS_EACH = Integer.parseInt(in.readLine());
+        System.out.println("Configuring for " + PACKETS_EACH + " packets per node");
+      } catch (NumberFormatException e) {
+        System.out.println("You didn't enter anything, defaulting to " + DEFAULT_PACKETS_EACH + " packets per node");
+        PACKETS_EACH = DEFAULT_PACKETS_EACH;
+      }
+      
+      try {
+        System.out.print("How fast should nodes attempt to send their packets in Mbps? ");
+        double read = Double.parseDouble(in.readLine());
+        
+        INTER_FRAME_DELAY = (int)(((
+                                ((double)MEDIUM_SPEED / (PACKET_SIZE * 8)) - ((read * (double)BIT_FACTOR) / (PACKET_SIZE * 8))) 
+                                /
+                                ((double)(read * (double)BIT_FACTOR) / (PACKET_SIZE * 8))) * (double)(PACKET_SIZE * 8));
+        System.out.println("Configured throttling to induce a inter frame delay of " + INTER_FRAME_DELAY + " bits of idle time");
+      } catch (NumberFormatException e) {
+        System.out.println("You didn't enter a speed, defaulting to 1.5Mbps for an inter frame delay of 16,602 bits");
+        INTER_FRAME_DELAY = 16602;
+      }
+      
+    } catch (Exception e) {
+      System.err.println("We encountered a problem, quitting..." + e);
+      System.exit(-1);
+    }
     
     /**
      Setup nodes for the simulation
@@ -103,10 +161,9 @@ public class Simulator {
       time_offset = generator.nextInt(2 << 12);
       
       for (int i = 0; i < PACKETS_EACH; i++) {
-        packet_size = 512; // generator.nextInt(1420);
-        this.events.add(new Event(source, destination, new Frame(source, destination, (64 + packet_size)), time_offset));
+        this.events.add(new Event(source, destination, new Frame(source, destination, (64 + PACKET_SIZE)), time_offset));
         
-        time_offset += packet_size * 8 + INTER_FRAME_DELAY + generator.nextInt(40000); // the next packet should come immediately after this frame + the inter frame delay, not one bit later
+        time_offset += (PACKET_SIZE * 8) + INTER_FRAME_DELAY; // the next packet should come immediately after this frame + the inter frame delay, not one bit later
       }
     }
     
@@ -162,6 +219,9 @@ public class Simulator {
      Loop through the available events until we've got no more to process.
     */
     while (this.events.size() > 0 || this.onWireEvents.size() > 0) {
+/*      if (timer % MEDIUM_SPEED == 0) {
+        System.out.println(timer / MEDIUM_SPEED + " seconds into the simulation, and we have " + this.events.size() + " left to send");
+      }/*
       /**
        Check for expired on wire events
        
@@ -258,7 +318,7 @@ public class Simulator {
             event.setTimeSlot(timer + (delay * RETRY_DELAY));
             this.events.add(event);
             
-            System.out.println("Triggering resend of frame with delay factor " + delay + ":" + event);
+            System.out.println("Triggering resend of frame with delay factor " + delay + " on retry " + retries + ": " + event);
           }
         }
         /**
@@ -284,18 +344,23 @@ public class Simulator {
     
     System.out.println("Simulation complete.  Out of " + this.initial_frames + " initial frames queued, we had " + this.dropped_frames + " dropped frames and " + this.retried_frames + " retried frames");
     
-    // 1280 frames * 512 bytes -> bits
-    int total_data_transmitted = 1280 * 512 * 8;
+    // 1280 frames * 512 bytes -> bits, this number is per node
+    int total_data_transmitted = PACKETS_EACH * (PACKET_SIZE * 8);
+    double speed = 0.0;
+    int time_taken_to_transmit = 0;
     
     for (Node node : this.nodes) {
+      speed = 0.0;
+      time_taken_to_transmit = node.getLastFrameSeen() - node.getFirstFrameSeen(); // time in bits
       
-      System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + ((double)total_data_transmitted / ((double)(node.getLastFrameSeen() -  node.getFirstFrameSeen()) / (double)10000000)) / 1000000 + " Mbps");
+      speed = (double)total_data_transmitted / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
+      System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + (Math.floor(speed * 10000) / 10000) + " Mbps");
     }
-    
+    /*
     for (Node node : this.nodes) {
       
       System.out.println(node.getMacAddress() + "," + node.getDestinationNode() + "," + ((double)total_data_transmitted / ((double)(node.getLastFrameSeen() -  node.getFirstFrameSeen()) / (double)10000000)) / 1000000 + " Mbps");
-    }
+    }*/
   }
   
   /**
