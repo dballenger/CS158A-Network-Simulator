@@ -2,7 +2,7 @@ import java.util.*;
 import java.io.*;
 
 /**
-  Time slice = 1 bit across the entire lan (500 meters)
+  Time slice = 1 bit
  1 bit / 10Mbps = 95.3674316 nano seconds (time "width" of a bit)
  speed of light in copper: c(copper) = 2.1 x 10^8 m/s
  Time to travel across the whole lan: 500 meters / c(copper) = 2.38095 x 10^-5 seconds = 23809.5 nanoseconds
@@ -229,7 +229,6 @@ public class Simulator {
       */
       for (int i = 0; i < this.onWireEvents.size(); i++) {
         if (this.onWireEvents.get(i).getFinishedSlot() <= timer) {
-//          System.out.println("Removing event " + this.onWireEvents.get(i) + " as it finished at " + this.onWireEvents.get(i).getFinishedSlot() + " and we are now at time " + timer);
           this.onWireEvents.remove(i);
           
           i--; // have to reset the i back one to account for the fact we just deleted one
@@ -245,7 +244,7 @@ public class Simulator {
          We also want to check the time for this event has come
         */
         next = this.events.get(0);
-        if (this.mediumClear(timer) && next.getTimeSlot() <= timer) {
+        if (this.mediumClear(next.getSource(), timer) && next.getTimeSlot() <= timer) {
           this.events.remove(0);
           this.onWireEvents.add(next);
           
@@ -256,16 +255,17 @@ public class Simulator {
           next.getSource().setLastFrameSent(timer);
         }
       }
+      
       /**
        If there's more than 1 events in the onWireEvents array list, we have a collision
        
-       Check if the events are inside or outside of the 512 bit detection window, in reality we wouldn't know immediately about the collision (but in a simulator we obviously can)
+       Check if the events are inside or outside of the 512 bit detection window
+       
+       Loop through each of the nodes, and see if one with a bit on the wire is within the time/distance to notice the other
       */
-      if (this.mediumClear(timer) && this.onWireEvents.size() > 1) { // this isn't quite what it should be
+      if (this.onWireEvents.size() > 1) { // this isn't quite what it should be
         // in this case, we push all events back onto this.events at random intervals...Event will need to track the retries (the exponential backoff algorithm)
-//        System.out.println("We have a collision on the network!!!!!!!!!!!!!!!!!!!!!!!!!!");
-//        System.out.println("Current time: " + timer);
-        
+
         /**
          We need to loop through each of the events on the wire, and if they're part of this collision, we need to increment
          their retry counter and schedule them to run again in the future according to the backoff algorithm
@@ -274,22 +274,12 @@ public class Simulator {
           retries = event.incrementRetries();
           
           /**
-           1) send a jamming signal
-           Then one of the below options depending on how many retries we're attempting:
-           
            2) resend the frame immediately (on the next timer cycle) or after 51.2 microseconds (random selection)
            3) If that fails: k * 51.2 microseconds where k = 0,1,2,3
            4) If it's still failing, k * 51.2 microseconds where k is [0, 2^3 - 1]
            5) If it's still failing, try up to [0, 2^10 - 1]
            Note: 51.2 microseconds = 536.870912 clock ticks in our simulation
           */
-          
-          /**
-           Send the jamming signal
-           
-           Just not right now since it will cause an endless loop creating jamming frames for the jamming frames
-          */
-//          this.events.add(new Event(event.getSource(), event.getDestination(), new Frame(event.getSource(), event.getDestination(), 4, timer)));
           
           /**
            Determine if we should "immediately" resend the frame or send it again later
@@ -356,20 +346,24 @@ public class Simulator {
       speed = (double)total_data_transmitted / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
       System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + (Math.floor(speed * 10000) / 10000) + " Mbps");
     }
-    /*
+    
     for (Node node : this.nodes) {
+      speed = 0.0;
+      time_taken_to_transmit = node.getLastFrameSeen() - node.getFirstFrameSeen(); // time in bits
       
-      System.out.println(node.getMacAddress() + "," + node.getDestinationNode() + "," + ((double)total_data_transmitted / ((double)(node.getLastFrameSeen() -  node.getFirstFrameSeen()) / (double)10000000)) / 1000000 + " Mbps");
-    }*/
+      speed = (double)total_data_transmitted / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
+      System.out.println(node.getMacAddress() + "," + node.getDestinationNode() + "," + (Math.floor(speed * 10000) / 10000) + " Mbps");
+    }
   }
   
   /**
    Helper function to check if the medium is clear to send
-  
+   
+   @param source The source node, the dstination is pulled from the various events (if any)
    @param Timer the current time
    @return True if the medium is clear (or appears clear), false if data transferring currently
   */
-  private boolean mediumClear(int timer) {
+  private boolean mediumClear(Node source, int timer) {
     Random generator = new Random();
     int distance_propogated_from_source = 0;
     
@@ -377,10 +371,11 @@ public class Simulator {
       /**
         We need to check if bits from the sender would have reached our node at this time
       */
-//      distance_propogated_from_source 
-      if ((timer - event.getTimeSlot()) <= generator.nextInt(512)) {
+      if ((timer - event.getTimeSlot()) <= this.distanceBetweenNodes(source, event.getDestination())) {
         /**
          No frames on the wire within 512 bits of distance
+         
+         Any possible bits of a frame haven't reached us yet
         */
         return true;
       } else {
@@ -393,6 +388,61 @@ public class Simulator {
     
     /**
      By default the medium is clear (we know this because this will only happen when nothing is on the wire)
+    */
+    return true;
+  }
+  
+  /**
+   Determine the distance between two nodes.  Distance is given as a position (to the right) or negative (to the left)
+   value which indicates distance from the center of the segment.
+   
+   @param source The first node
+   @param destination The second node
+   @return The distance (always positive) in bits
+  */
+  private int distanceBetweenNodes(Node source, Node destination) {
+    final int SPEED_OF_LIGHT_IN_COPPER = 210000000; // m/s
+    int distance_in_meters = 0;
+    
+    /**
+     Both nodes are to the left of the center of the segment or both to the right of the segment
+    */
+    if ((source.getDistance() < 0 && destination.getDistance() < 0) || (source.getDistance() > 0 && destination.getDistance() > 0)) {
+      distance_in_meters = Math.abs(source.getDistance() - destination.getDistance());
+    } else {
+     /**
+      Both nodes are on opposite sides of the segment
+     */ 
+     distance_in_meters = (Math.abs(source.getDistance()) + Math.abs(destination.getDistance()));
+    }
+    
+    return (int)Math.ceil((((double)distance_in_meters / SPEED_OF_LIGHT_IN_COPPER) / ((double)1 / MEDIUM_SPEED)));
+  }
+  
+  /**
+   Determine if we've detected any collisions
+   
+   @param events The list of events on the wire
+   @param timer The current simulation time ticket
+   @return true if collision detected, otherwise false
+  */
+  private boolean detectCollision(ArrayList<Event> events, int timer) {
+    /**
+     For each event on the wire, we want to see if it's reached another node which is also currently sending traffic
+     (also in the events list)
+    */
+    for (Event event : events) {
+      Node source = event.getSource();
+      
+      for (Event check_event : events) {
+        if ((timer - check_event.getTimeSlot()) < this.distanceBetweenNodes(source, check_event.getDestination()) && event != check_event) {
+          return false;
+        }
+      }
+    }
+    
+    /**
+     If we've gotten this far in the method, we don't have a collision
     */
     return true;
   }
