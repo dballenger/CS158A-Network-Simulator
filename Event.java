@@ -19,6 +19,10 @@ public class Event {
   */
   private short retries = 0;
   /**
+   Delay related metrics
+  */
+  private long started_at = 0, finished_at = 0;
+  /**
    The speed of light in copper, in meters per second
   */
   private final int SPEED_OF_LIGHT_IN_COPPER = 210000000;
@@ -28,6 +32,10 @@ public class Event {
     this.destination  = destination;
     this.frame        = frame;
     this.time_slot    = time_slot;
+    /**
+     Started at contains the time of the first scheduled attempt to send the frame for the purpose of tracking delay
+    */
+    this.started_at   = time_slot;
     this.retries      = 0;
   }
   
@@ -67,6 +75,20 @@ public class Event {
   
   public short incrementRetries() {
     return ++this.retries;
+  }
+  
+  public long setFinished(long timer) {
+    this.finished_at = timer;
+    
+    return this.finished_at;
+  }
+  
+  public long getStarted() {
+    return this.started_at;
+  }
+  
+  public long getFinished() {
+    return this.finished_at;
   }
   
   public String toString() {

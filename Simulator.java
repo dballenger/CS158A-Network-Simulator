@@ -30,6 +30,10 @@ public class Simulator {
   */
   private ArrayList<Event> onWireEvents = new ArrayList<Event>();
   /**
+   The list of completed (transmitted) events
+  */
+  private ArrayList<Event> completedEvents = new ArrayList<Event>();
+  /**
    The nodes between which we'll be sending our traffic
   */
   private ArrayList<Node> nodes = new ArrayList<Node>();
@@ -87,6 +91,7 @@ public class Simulator {
       Here we should analyze the statistics (collisions, transmit speed, etc)
       sim.metrics();
     */
+    sim.statistics();
   }
   
   private void setup() {
@@ -163,7 +168,7 @@ public class Simulator {
       for (int i = 0; i < PACKETS_EACH; i++) {
         this.events.add(new Event(source, destination, new Frame(source, destination, (64 + PACKET_SIZE)), time_offset));
         
-        time_offset += (PACKET_SIZE * 8) + INTER_FRAME_DELAY + generator.nextInt(2 << 12); // the next packet should come immediately after this frame + the inter frame delay, not one bit later
+        time_offset += (PACKET_SIZE * 8) + INTER_FRAME_DELAY + (generator.nextInt(2 << 8) * (generator.nextInt(10) == 0 ? -1 : 1)); // the next packet should come immediately after this frame + the inter frame delay, not one bit later
       }
     }
     
@@ -229,6 +234,15 @@ public class Simulator {
       */
       for (int i = 0; i < this.onWireEvents.size(); i++) {
         if (this.onWireEvents.get(i).getFinishedSlot() <= timer) {
+          /**
+           Mark the event as completed and push it into the completed array list
+          */
+          this.onWireEvents.get(i).setFinished(timer);
+          this.completedEvents.add(this.onWireEvents.get(i));
+          
+          /**
+           Remove it from the wire
+          */
           this.onWireEvents.remove(i);
           
           i--; // have to reset the i back one to account for the fact we just deleted one
@@ -333,26 +347,44 @@ public class Simulator {
     }
     
     System.out.println("Simulation complete.  Out of " + this.initial_frames + " initial frames queued, we had " + this.dropped_frames + " dropped frames and " + this.retried_frames + " retried frames");
-    
+  }
+  
+  private void statistics() {
     // 1280 frames * 512 bytes -> bits, this number is per node
     int total_data_transmitted = PACKETS_EACH * (PACKET_SIZE * 8);
+    long frames_sent = 0;
     double speed = 0.0;
+    double delay_in_seconds = 0.0;
     int time_taken_to_transmit = 0;
     
+    /**
+     Human readable statistics output
+    */
     for (Node node : this.nodes) {
       speed = 0.0;
-      time_taken_to_transmit = node.getLastFrameSeen() - node.getFirstFrameSeen(); // time in bits
+      frames_sent = 0;
       
-      speed = (double)total_data_transmitted / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
-      System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + (Math.floor(speed * 10000) / 10000) + " Mbps");
+      time_taken_to_transmit = node.getLastFrameSeen() - node.getFirstFrameSeen(); // time in bits
+      frames_sent = this.calculateFramesDelivered(node, node.getDestinationNode());
+      delay_in_seconds = this.calculateDelay(node, node.getDestinationNode());
+      
+      speed = (double)(frames_sent * PACKET_SIZE * 8) / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
+      System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + (Math.floor(speed * 10000) / 10000) + " Mbps with an average delay of " + delay_in_seconds + " and " + frames_sent + " successfully transmitted frames");
     }
     
+    /**
+     CSV output
+    */
     for (Node node : this.nodes) {
       speed = 0.0;
-      time_taken_to_transmit = node.getLastFrameSeen() - node.getFirstFrameSeen(); // time in bits
+      frames_sent = 0;
       
-      speed = (double)total_data_transmitted / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
-      System.out.println(node.getMacAddress() + "," + node.getDestinationNode() + "," + (Math.floor(speed * 10000) / 10000) + " Mbps");
+      time_taken_to_transmit = node.getLastFrameSeen() - node.getFirstFrameSeen(); // time in bits
+      frames_sent = this.calculateFramesDelivered(node, node.getDestinationNode());
+      delay_in_seconds = this.calculateDelay(node, node.getDestinationNode());
+      
+      speed = (double)(frames_sent * PACKET_SIZE * 8) / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
+      System.out.println(node.getMacAddress() + "," + node.getDestinationNode() + "," + (Math.floor(speed * 10000) / 10000) + " Mbps," + delay_in_seconds);
     }
   }
   
@@ -445,5 +477,48 @@ public class Simulator {
      If we've gotten this far in the method, we don't have a collision
     */
     return true;
+  }
+  
+  /**
+   Calculate the delay across all frames between the given source and destination
+   
+   @param source The source node
+   @param destination The destination node
+   
+   @return The average delay in seconds
+  */
+  private double calculateDelay(Node source, Node destination) {
+    double total_delay = 0.0;
+    
+    for (Event event : this.completedEvents) {
+      /**
+       Check if the event was between our given source and destination nodes
+      */
+      if (event.getSource() == source && event.getDestination() == destination) {
+        total_delay += event.getFinished() - event.getStarted();
+      }
+    }
+    
+    return ((total_delay / this.calculateFramesDelivered(source, destination)) / MEDIUM_SPEED);
+  }
+  
+  /**
+   Count how many frames were sent between two nodes.
+   
+   @param source The source node
+   @param destination The destination node
+   
+   @return Number of frames sent between the two nodes
+  */
+  private long calculateFramesDelivered(Node source, Node destination) {
+    long frames = 0;
+    
+    for (Event event : this.completedEvents) {
+      if (event.getSource() == source && event.getDestination() == destination) {
+        frames++;
+      }
+    }
+    
+    return frames;
   }
 }
