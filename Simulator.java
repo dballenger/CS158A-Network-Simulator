@@ -369,7 +369,7 @@ public class Simulator {
       delay_in_seconds = this.calculateDelay(node, node.getDestinationNode());
       
       speed = (double)(frames_sent * PACKET_SIZE * 8) / ((double)time_taken_to_transmit / MEDIUM_SPEED / BIT_FACTOR);
-      System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + (Math.floor(speed * 10000) / 10000) + " Mbps with an average delay of " + delay_in_seconds + " and " + frames_sent + " successfully transmitted frames");
+      System.out.println("Speed to transmit from " + node.getMacAddress() + " -> " + node.getDestinationNode() + ": " + (Math.floor(speed * 10000) / 10000) + " Mbps with an average delay of " + delay_in_seconds + " seconds and " + frames_sent + " successfully transmitted frames");
     }
     
     /**
