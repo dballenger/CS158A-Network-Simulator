@@ -1,0 +1,7 @@
+Compiling the simulator:
+% javac *.java
+
+Running the simulator:
+% java Simulator
+
+The simulator will prompt for the various network attributes (number of nodes, number of frames for each node to send, and at what speed should the nodes attempt to send their frames)
